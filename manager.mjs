@@ -170,9 +170,10 @@ async function provision(config) {
         }
       }
 
-      // Detect wizard prompts — just look for the "?:" input prompt and answer sequentially
-      // But skip the Conway API key prompt (handled separately above)
-      if (msg.includes("?:") && !msg.includes("██") && !msg.includes("cnwy_k_") && !msg.includes("API key") && answerIndex < wizardAnswers.length) {
+      // Detect wizard prompts — look for "?:" input prompt OR genesis prompt instruction
+      const isPrompt = (msg.includes("?:") && !msg.includes("██") && !msg.includes("cnwy_k_") && !msg.includes("API key"))
+                    || (msg.includes("press Enter twice") && answerIndex === 1);
+      if (isPrompt && answerIndex < wizardAnswers.length) {
         const answer = wizardAnswers[answerIndex];
         const label = wizardLabels[answerIndex];
         const idx = answerIndex;
