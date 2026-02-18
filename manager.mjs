@@ -113,7 +113,7 @@ async function provision(config) {
   });
 
   // Feed the interactive wizard with answers from the launch config
-  // Wizard asks: [3/6] name, [4/6] genesis prompt, [5/6] creator address
+  // Wizard asks: [3/6] name, genesis prompt, creator address
   const wizardAnswers = [
     config.name || "Agent",
     config.genesis_prompt || config.genesisPrompt || "You are an autonomous agent. Find ways to create value.",
@@ -121,6 +121,42 @@ async function provision(config) {
   ];
   const wizardLabels = ["Setting agent name", "Writing genesis prompt", "Registering creator address"];
   let answerIndex = 0;
+  let wizardDone = false;
+
+  // Pre-schedule all wizard answers with generous delays
+  // The wizard takes ~3-5 seconds to get through wallet + API key provisioning
+  // Then asks name, genesis prompt (needs double-enter), creator address
+  setTimeout(() => {
+    if (child.stdin.writable && !wizardDone) {
+      console.log(`[${id}] Pre-feeding wizard answer [0] (name): "${wizardAnswers[0]}"`);
+      child.stdin.write(wizardAnswers[0] + "\n");
+      if (config.agent_id) log(config.agent_id, "action", `${wizardLabels[0]}: ${wizardAnswers[0]}`, { sandbox_id: id, wizard_step: 0 });
+    }
+  }, 8000);
+
+  setTimeout(() => {
+    if (child.stdin.writable && !wizardDone) {
+      console.log(`[${id}] Pre-feeding wizard answer [1] (genesis): "${wizardAnswers[1].slice(0, 40)}..."`);
+      child.stdin.write(wizardAnswers[1] + "\n");
+      if (config.agent_id) log(config.agent_id, "action", `${wizardLabels[1]}: ${wizardAnswers[1].slice(0, 200)}`, { sandbox_id: id, wizard_step: 1 });
+    }
+  }, 10000);
+
+  // Double-enter to finish genesis prompt
+  setTimeout(() => {
+    if (child.stdin.writable && !wizardDone) {
+      console.log(`[${id}] Sending blank line to finish genesis prompt`);
+      child.stdin.write("\n");
+    }
+  }, 11000);
+
+  setTimeout(() => {
+    if (child.stdin.writable && !wizardDone) {
+      console.log(`[${id}] Pre-feeding wizard answer [2] (creator): "${wizardAnswers[2].slice(0, 20)}..."`);
+      child.stdin.write(wizardAnswers[2] + "\n");
+      if (config.agent_id) log(config.agent_id, "action", `${wizardLabels[2]}: ${wizardAnswers[2]}`, { sandbox_id: id, wizard_step: 2 });
+    }
+  }, 13000);
 
   child.stdout.on("data", (d) => {
     const raw = d.toString();
@@ -170,58 +206,14 @@ async function provision(config) {
         }
       }
 
-      // Detect wizard prompts — look for input prompts
-      const isPrompt = (msg.includes("?:") && !msg.includes("██") && !msg.includes("cnwy_k_") && !msg.includes("API key"))
-                    || (msg.includes("press Enter twice") && answerIndex === 1)
-                    || (msg.includes("creator") && msg.includes(":") && answerIndex === 2)
-                    || (msg.includes("owner") && msg.includes(":") && answerIndex === 2)
-                    || (msg.includes("address") && msg.endsWith(":") && answerIndex === 2);
-      if (isPrompt && answerIndex < wizardAnswers.length) {
-        const answer = wizardAnswers[answerIndex];
-        const label = wizardLabels[answerIndex];
-        const idx = answerIndex;
-        console.log(`[${id}] Wizard prompt detected, sending answer [${idx}]: "${answer.slice(0, 60)}..."`);
-
-        if (config.agent_id) {
-          log(config.agent_id, "action", `${label}: ${answer.slice(0, 200)}`, { sandbox_id: id, wizard_step: idx });
-        }
-
-        answerIndex++;
-        setTimeout(() => {
-          if (child.stdin.writable) {
-            if (idx === 1) {
-              // Genesis prompt: send everything at once with extra newlines
-              child.stdin.write(answer + "\n\n\n");
-              console.log(`[${id}] Sent genesis prompt with triple newline`);
-            } else {
-              child.stdin.write(answer + "\n");
-            }
-          }
-        }, 500 + (idx * 500));
+      // Detect when wizard is complete
+      if (msg.includes("[6/6]") || msg.includes("Setup complete") || msg.includes("Think") || msg.includes("loop")) {
+        wizardDone = true;
+        console.log(`[${id}] Wizard appears complete`);
+        if (config.agent_id) log(config.agent_id, "action", "Conway setup complete — agent loop starting", { sandbox_id: id });
       }
     }
   });
-
-  // Fallback: if wizard gets stuck, send remaining answers after delays
-  setTimeout(() => {
-    if (answerIndex <= 2 && child.stdin.writable) {
-      console.log(`[${id}] Fallback: wizard may be stuck at step ${answerIndex}, sending remaining answers`);
-      const remaining = wizardAnswers.slice(answerIndex);
-      remaining.forEach((answer, i) => {
-        setTimeout(() => {
-          if (child.stdin.writable) {
-            const actualIdx = answerIndex + i;
-            console.log(`[${id}] Fallback answer [${actualIdx}]: "${answer.slice(0, 40)}..."`);
-            if (actualIdx === 1) {
-              child.stdin.write(answer + "\n\n\n");
-            } else {
-              child.stdin.write(answer + "\n");
-            }
-          }
-        }, i * 2000);
-      });
-    }
-  }, 15000);
 
   child.stderr.on("data", (d) => {
     const msg = d.toString().trim();
