@@ -328,7 +328,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, () => {
   console.log(`◈ ALiFe Conway Manager`);
   console.log(`  Port: ${PORT}`);
   console.log(`  Health: /health`);
