@@ -106,6 +106,7 @@ async function provision(config) {
     config.genesis_prompt || config.genesisPrompt || "You are an autonomous agent. Find ways to create value.",
     config.creator_address || config.creatorAddress || "0x0000000000000000000000000000000000000000",
   ];
+  const wizardLabels = ["Setting agent name", "Writing genesis prompt", "Registering creator address"];
   let answerIndex = 0;
 
   child.stdout.on("data", (d) => {
@@ -114,10 +115,39 @@ async function provision(config) {
       console.log(`[${id}] ${msg}`);
       if (config.agent_id) log(config.agent_id, "info", msg, { sandbox_id: id });
 
+      // Capture the real wallet Conway generates
+      if (msg.includes("Wallet created:")) {
+        const walletMatch = msg.match(/0x[a-fA-F0-9]{40}/);
+        if (walletMatch) {
+          const realWallet = walletMatch[0];
+          const agent = agents.get(id);
+          if (agent) agent.wallet = realWallet;
+          console.log(`[${id}] Real wallet captured: ${realWallet}`);
+          if (config.agent_id) {
+            db("PATCH", "agents", { agent_wallet_address: realWallet }, `id=eq.${config.agent_id}`);
+            log(config.agent_id, "action", `Wallet generated: ${realWallet}`, { sandbox_id: id, wallet: realWallet });
+          }
+        }
+      }
+
+      // Capture API key provisioning
+      if (msg.includes("API key provisioned:")) {
+        if (config.agent_id) {
+          log(config.agent_id, "action", "Conway API key provisioned — agent authenticated", { sandbox_id: id });
+        }
+      }
+
       // Detect wizard prompts and feed answers
       if ((msg.includes("→") || msg.includes("?:") || msg.includes("prompt")) && answerIndex < wizardAnswers.length) {
         const answer = wizardAnswers[answerIndex];
+        const label = wizardLabels[answerIndex];
         console.log(`[${id}] Wizard auto-answer [${answerIndex}]: "${answer.slice(0, 60)}..."`);
+
+        // Log the answer to Supabase so it shows in the activity feed
+        if (config.agent_id) {
+          log(config.agent_id, "action", `${label}: ${answer.slice(0, 200)}`, { sandbox_id: id, wizard_step: answerIndex });
+        }
+
         setTimeout(() => {
           if (child.stdin.writable) {
             child.stdin.write(answer + "\n");
