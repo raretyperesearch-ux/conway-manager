@@ -138,7 +138,11 @@ async function provision(config) {
       }
 
       // Detect wizard prompts and feed answers
-      if ((msg.includes("→") || msg.includes("?:") || msg.includes("prompt")) && answerIndex < wizardAnswers.length) {
+      const isWizardPrompt = msg.includes("name your automaton") || 
+                             msg.includes("genesis prompt") || msg.includes("seed instruction") ||
+                             msg.includes("creator") || msg.includes("owner address") ||
+                             (msg.includes("?:") && !msg.includes("██"));
+      if (isWizardPrompt && answerIndex < wizardAnswers.length) {
         const answer = wizardAnswers[answerIndex];
         const label = wizardLabels[answerIndex];
         console.log(`[${id}] Wizard auto-answer [${answerIndex}]: "${answer.slice(0, 60)}..."`);
