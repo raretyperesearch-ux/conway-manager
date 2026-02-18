@@ -190,14 +190,9 @@ async function provision(config) {
         setTimeout(() => {
           if (child.stdin.writable) {
             if (idx === 1) {
-              // Genesis prompt: write text + newline, then blank line after delay
-              child.stdin.write(answer + "\n");
-              setTimeout(() => {
-                if (child.stdin.writable) {
-                  child.stdin.write("\n");
-                  console.log(`[${id}] Sent double-enter for genesis prompt`);
-                }
-              }, 800);
+              // Genesis prompt: send everything at once with extra newlines
+              child.stdin.write(answer + "\n\n\n");
+              console.log(`[${id}] Sent genesis prompt with triple newline`);
             } else {
               child.stdin.write(answer + "\n");
             }
@@ -215,10 +210,12 @@ async function provision(config) {
       remaining.forEach((answer, i) => {
         setTimeout(() => {
           if (child.stdin.writable) {
-            console.log(`[${id}] Fallback answer [${answerIndex + i}]: "${answer.slice(0, 40)}..."`);
-            child.stdin.write(answer + "\n");
-            if (answerIndex + i === 1) {
-              setTimeout(() => { if (child.stdin.writable) child.stdin.write("\n"); }, 500);
+            const actualIdx = answerIndex + i;
+            console.log(`[${id}] Fallback answer [${actualIdx}]: "${answer.slice(0, 40)}..."`);
+            if (actualIdx === 1) {
+              child.stdin.write(answer + "\n\n\n");
+            } else {
+              child.stdin.write(answer + "\n");
             }
           }
         }, i * 2000);
