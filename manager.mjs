@@ -27,12 +27,15 @@ const agents = new Map();
 
 // ── Supabase helpers ──
 async function db(method, table, data, filter) {
-  if (!SUPABASE_URL || !SUPABASE_KEY) return null;
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    console.error(`[db] No Supabase config - URL: ${!!SUPABASE_URL}, KEY: ${!!SUPABASE_KEY}`);
+    return null;
+  }
   const url = filter
     ? `${SUPABASE_URL}/rest/v1/${table}?${filter}`
     : `${SUPABASE_URL}/rest/v1/${table}`;
   try {
-    await fetch(url, {
+    const res = await fetch(url, {
       method,
       headers: {
         "Content-Type": "application/json",
@@ -42,8 +45,14 @@ async function db(method, table, data, filter) {
       },
       body: data ? JSON.stringify(data) : undefined,
     });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`[db] ${method} ${table} ${res.status}: ${errText}`);
+    }
+    return res.ok;
   } catch (e) {
     console.error(`[db] ${method} ${table} failed:`, e.message);
+    return false;
   }
 }
 
