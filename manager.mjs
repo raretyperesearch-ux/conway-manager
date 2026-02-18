@@ -190,7 +190,15 @@ async function provision(config) {
         setTimeout(() => {
           if (child.stdin.writable) {
             if (idx === 1) {
-              child.stdin.write(answer + "\n\n");
+              // Genesis prompt: write text + newline first
+              child.stdin.write(answer + "\n");
+              // Then send empty line after a delay to signal "done"
+              setTimeout(() => {
+                if (child.stdin.writable) {
+                  child.stdin.write("\n");
+                  console.log(`[${id}] Sent double-enter for genesis prompt`);
+                }
+              }, 800);
             } else {
               child.stdin.write(answer + "\n");
             }
