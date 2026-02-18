@@ -25,7 +25,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
 
 const CONWAY_API_URL = "https://api.conway.tech";
-const LAUNCH_FUNDING_CENTS = 50; // $0.50 per agent
+const LAUNCH_FUNDING_CENTS = 100; // $1.00 per agent (Conway minimum is $1.00)
 
 // ── Fund agent with Conway credits ──
 async function fundAgent(walletAddress, agentId, sandboxId) {
