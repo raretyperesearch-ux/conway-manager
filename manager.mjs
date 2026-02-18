@@ -137,12 +137,13 @@ async function provision(config) {
         }
       }
 
-      // Detect wizard prompts and feed answers
-      const isWizardPrompt = msg.includes("name your automaton") || 
-                             msg.includes("genesis prompt") || msg.includes("seed instruction") ||
-                             msg.includes("creator") || msg.includes("owner address") ||
-                             (msg.includes("?:") && !msg.includes("██"));
-      if (isWizardPrompt && answerIndex < wizardAnswers.length) {
+      // Detect wizard prompts and feed answers — match specific steps
+      let shouldAnswer = false;
+      if (answerIndex === 0 && msg.includes("name your automaton")) shouldAnswer = true;
+      if (answerIndex === 1 && (msg.includes("Enter the genesis") || msg.includes("Type your prompt"))) shouldAnswer = true;
+      if (answerIndex === 2 && (msg.includes("creator") || msg.includes("owner"))) shouldAnswer = true;
+      
+      if (shouldAnswer && answerIndex < wizardAnswers.length) {
         const answer = wizardAnswers[answerIndex];
         const label = wizardLabels[answerIndex];
         console.log(`[${id}] Wizard auto-answer [${answerIndex}]: "${answer.slice(0, 60)}..."`);
@@ -154,7 +155,12 @@ async function provision(config) {
 
         setTimeout(() => {
           if (child.stdin.writable) {
-            child.stdin.write(answer + "\n");
+            // Genesis prompt needs double Enter to finish
+            if (answerIndex === 1) {
+              child.stdin.write(answer + "\n\n");
+            } else {
+              child.stdin.write(answer + "\n");
+            }
             answerIndex++;
           }
         }, 500);
