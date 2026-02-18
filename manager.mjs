@@ -170,17 +170,13 @@ async function provision(config) {
         }
       }
 
-      // Detect wizard prompts and feed answers — match specific steps
-      let shouldAnswer = false;
-      if (answerIndex === 0 && msg.includes("name your automaton")) shouldAnswer = true;
-      if (answerIndex === 1 && (msg.includes("Enter the genesis") || msg.includes("Type your prompt"))) shouldAnswer = true;
-      if (answerIndex === 2 && (msg.includes("creator") || msg.includes("owner"))) shouldAnswer = true;
-      
-      if (shouldAnswer && answerIndex < wizardAnswers.length) {
+      // Detect wizard prompts — just look for the "?:" input prompt and answer sequentially
+      // But skip the Conway API key prompt (handled separately above)
+      if (msg.includes("?:") && !msg.includes("██") && !msg.includes("cnwy_k_") && !msg.includes("API key") && answerIndex < wizardAnswers.length) {
         const answer = wizardAnswers[answerIndex];
         const label = wizardLabels[answerIndex];
         const idx = answerIndex;
-        console.log(`[${id}] Wizard auto-answer [${idx}]: "${answer.slice(0, 60)}..."`);
+        console.log(`[${id}] Wizard prompt detected, sending answer [${idx}]: "${answer.slice(0, 60)}..."`);
 
         if (config.agent_id) {
           log(config.agent_id, "action", `${label}: ${answer.slice(0, 200)}`, { sandbox_id: id, wizard_step: idx });
@@ -190,9 +186,8 @@ async function provision(config) {
         setTimeout(() => {
           if (child.stdin.writable) {
             if (idx === 1) {
-              // Genesis prompt: write text + newline first
+              // Genesis prompt: write text + newline, then blank line after delay
               child.stdin.write(answer + "\n");
-              // Then send empty line after a delay to signal "done"
               setTimeout(() => {
                 if (child.stdin.writable) {
                   child.stdin.write("\n");
