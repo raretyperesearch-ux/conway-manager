@@ -99,11 +99,32 @@ async function provision(config) {
     stdio: ["pipe", "pipe", "pipe"],
   });
 
+  // Feed the interactive wizard with answers from the launch config
+  // Wizard asks: [3/6] name, [4/6] genesis prompt, [5/6] creator address
+  const wizardAnswers = [
+    config.name || "Agent",
+    config.genesis_prompt || config.genesisPrompt || "You are an autonomous agent. Find ways to create value.",
+    config.creator_address || config.creatorAddress || "0x0000000000000000000000000000000000000000",
+  ];
+  let answerIndex = 0;
+
   child.stdout.on("data", (d) => {
     const msg = d.toString().trim();
     if (msg) {
       console.log(`[${id}] ${msg}`);
       if (config.agent_id) log(config.agent_id, "info", msg, { sandbox_id: id });
+
+      // Detect wizard prompts and feed answers
+      if ((msg.includes("→") || msg.includes("?:") || msg.includes("prompt")) && answerIndex < wizardAnswers.length) {
+        const answer = wizardAnswers[answerIndex];
+        console.log(`[${id}] Wizard auto-answer [${answerIndex}]: "${answer.slice(0, 60)}..."`);
+        setTimeout(() => {
+          if (child.stdin.writable) {
+            child.stdin.write(answer + "\n");
+            answerIndex++;
+          }
+        }, 500);
+      }
     }
   });
 
