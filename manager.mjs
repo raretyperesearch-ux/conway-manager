@@ -170,9 +170,12 @@ async function provision(config) {
         }
       }
 
-      // Detect wizard prompts — look for "?:" input prompt OR genesis prompt instruction
+      // Detect wizard prompts — look for input prompts
       const isPrompt = (msg.includes("?:") && !msg.includes("██") && !msg.includes("cnwy_k_") && !msg.includes("API key"))
-                    || (msg.includes("press Enter twice") && answerIndex === 1);
+                    || (msg.includes("press Enter twice") && answerIndex === 1)
+                    || (msg.includes("creator") && msg.includes(":") && answerIndex === 2)
+                    || (msg.includes("owner") && msg.includes(":") && answerIndex === 2)
+                    || (msg.includes("address") && msg.endsWith(":") && answerIndex === 2);
       if (isPrompt && answerIndex < wizardAnswers.length) {
         const answer = wizardAnswers[answerIndex];
         const label = wizardLabels[answerIndex];
@@ -203,6 +206,25 @@ async function provision(config) {
       }
     }
   });
+
+  // Fallback: if wizard gets stuck, send remaining answers after delays
+  setTimeout(() => {
+    if (answerIndex <= 2 && child.stdin.writable) {
+      console.log(`[${id}] Fallback: wizard may be stuck at step ${answerIndex}, sending remaining answers`);
+      const remaining = wizardAnswers.slice(answerIndex);
+      remaining.forEach((answer, i) => {
+        setTimeout(() => {
+          if (child.stdin.writable) {
+            console.log(`[${id}] Fallback answer [${answerIndex + i}]: "${answer.slice(0, 40)}..."`);
+            child.stdin.write(answer + "\n");
+            if (answerIndex + i === 1) {
+              setTimeout(() => { if (child.stdin.writable) child.stdin.write("\n"); }, 500);
+            }
+          }
+        }, i * 2000);
+      });
+    }
+  }, 15000);
 
   child.stderr.on("data", (d) => {
     const msg = d.toString().trim();
