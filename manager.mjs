@@ -96,92 +96,98 @@ async function provision(config) {
   }
 
   // Spawn the Conway automaton as a child process
-  // Use 'script' to wrap in a pseudo-TTY so readline works properly
-  const envVars = {
-    ...process.env,
-    AUTOMATON_CONFIG_DIR: configDir,
-    AUTOMATON_NAME: config.name,
-    AUTOMATON_GENESIS: config.genesis_prompt || config.genesisPrompt || "",
-    AUTOMATON_CREATOR: config.creator_address || config.creatorAddress || "",
-    AUTOMATON_WALLET: wallet,
-    CONWAY_API_KEY: CONWAY_CLOUD_KEY,
-    TERM: "xterm",
-    COLUMNS: "120",
-    LINES: "40",
-  };
-
-  const child = spawn("script", ["-qfc", "node dist/index.js --run", "/dev/null"], {
+  const child = spawn("node", ["dist/index.js", "--run"], {
     cwd: "/app",
-    env: envVars,
+    env: {
+      ...process.env,
+      AUTOMATON_CONFIG_DIR: configDir,
+      AUTOMATON_NAME: config.name,
+      AUTOMATON_GENESIS: config.genesis_prompt || config.genesisPrompt || "",
+      AUTOMATON_CREATOR: config.creator_address || config.creatorAddress || "",
+      AUTOMATON_WALLET: wallet,
+      CONWAY_API_KEY: CONWAY_CLOUD_KEY,
+    },
     stdio: ["pipe", "pipe", "pipe"],
   });
 
   // Feed the interactive wizard with answers from the launch config
-  // Wizard asks: [3/6] name, genesis prompt, creator address
-  const wizardAnswers = [
-    config.name || "Agent",
-    config.genesis_prompt || config.genesisPrompt || "You are an autonomous agent. Find ways to create value.",
-    config.creator_address || config.creatorAddress || "0x0000000000000000000000000000000000000000",
-  ];
-  const wizardLabels = ["Setting agent name", "Writing genesis prompt", "Registering creator address"];
-  let answerIndex = 0;
+  // From reading Conway source code (src/setup/prompts.ts):
+  //
+  // promptRequired("name") → readline.question("  → What do you want to name...: ")
+  //   needs: name + \n
+  //
+  // promptMultiline("genesis") → readline.question("  ") in a loop:
+  //   line 1: actual text → needs: text + \n
+  //   line 2: empty → needs: \n  (sets lastWasEmpty = true)  
+  //   line 3: empty → needs: \n  (breaks the loop)
+  //
+  // promptAddress("address") → readline.question("  → Your Ethereum wallet...: ")
+  //   needs: address + \n
+  //
+  // Total stdin sequence: name\n  text\n  \n  \n  address\n
+
+  const agentName = config.name || "Agent";
+  const genesis = config.genesis_prompt || config.genesisPrompt || "You are an autonomous agent. Find ways to create value.";
+  const creator = config.creator_address || config.creatorAddress || "0x0000000000000000000000000000000000000000";
   let wizardDone = false;
 
   // Pre-schedule all wizard answers with generous delays
-  // The wizard takes ~3-5 seconds to get through wallet + API key provisioning
-  // Then asks name, genesis prompt (needs double-enter), creator address
+  // Wallet + SIWE takes ~2-4 seconds, then wizard questions start
+
+  // Answer 1: Name (at 8s)
   setTimeout(() => {
     if (child.stdin.writable && !wizardDone) {
-      console.log(`[${id}] Pre-feeding wizard answer [0] (name): "${wizardAnswers[0]}"`);
-      child.stdin.write(wizardAnswers[0] + "\n");
-      if (config.agent_id) log(config.agent_id, "action", `${wizardLabels[0]}: ${wizardAnswers[0]}`, { sandbox_id: id, wizard_step: 0 });
+      console.log(`[${id}] Sending name: "${agentName}"`);
+      child.stdin.write(agentName + "\n");
+      if (config.agent_id) log(config.agent_id, "action", `Setting agent name: ${agentName}`, { sandbox_id: id });
     }
   }, 8000);
 
+  // Answer 2: Genesis prompt text (at 10s)
   setTimeout(() => {
     if (child.stdin.writable && !wizardDone) {
-      // Send genesis prompt as single write: text + two newlines to signal "done"
-      const genesisPayload = wizardAnswers[1] + "\n\n";
-      console.log(`[${id}] Pre-feeding wizard answer [1] (genesis) as single write with \\n\\n`);
-      console.log(`[${id}] Genesis payload bytes: ${Buffer.byteLength(genesisPayload)}`);
-      child.stdin.write(genesisPayload);
-      if (config.agent_id) log(config.agent_id, "action", `${wizardLabels[1]}: ${wizardAnswers[1].slice(0, 200)}`, { sandbox_id: id, wizard_step: 1 });
+      console.log(`[${id}] Sending genesis prompt text: "${genesis.slice(0, 50)}..."`);
+      child.stdin.write(genesis + "\n");
+      if (config.agent_id) log(config.agent_id, "action", `Writing genesis prompt: ${genesis.slice(0, 200)}`, { sandbox_id: id });
     }
   }, 10000);
 
-  // Extra blank lines just in case
+  // Answer 3: First empty line for genesis multiline (at 11.5s)
   setTimeout(() => {
     if (child.stdin.writable && !wizardDone) {
-      console.log(`[${id}] Sending extra blank lines for genesis`);
-      child.stdin.write("\n\n");
+      console.log(`[${id}] Sending first empty line for genesis`);
+      child.stdin.write("\n");
     }
-  }, 12000);
+  }, 11500);
 
+  // Answer 4: Second empty line to break genesis loop (at 13s)
   setTimeout(() => {
     if (child.stdin.writable && !wizardDone) {
-      console.log(`[${id}] Pre-feeding wizard answer [2] (creator): "${wizardAnswers[2].slice(0, 20)}..."`);
-      child.stdin.write(wizardAnswers[2] + "\n");
-      if (config.agent_id) log(config.agent_id, "action", `${wizardLabels[2]}: ${wizardAnswers[2]}`, { sandbox_id: id, wizard_step: 2 });
+      console.log(`[${id}] Sending second empty line to finish genesis`);
+      child.stdin.write("\n");
     }
-  }, 14000);
+  }, 13000);
 
-  // Debug: check if process is still alive after 20 seconds
+  // Answer 5: Creator address (at 15s)
   setTimeout(() => {
-    const a = agents.get(id);
-    console.log(`[${id}] Status check at 20s: process alive=${!child.killed}, stdin writable=${child.stdin.writable}, wizardDone=${wizardDone}`);
     if (child.stdin.writable && !wizardDone) {
-      console.log(`[${id}] Wizard still not done - sending extra newlines`);
-      child.stdin.write("\n\n\n");
+      console.log(`[${id}] Sending creator address: "${creator.slice(0, 20)}..."`);
+      child.stdin.write(creator + "\n");
+      if (config.agent_id) log(config.agent_id, "action", `Registering creator: ${creator}`, { sandbox_id: id });
     }
-  }, 20000);
+  }, 15000);
+
+  // Status check at 25s
+  setTimeout(() => {
+    console.log(`[${id}] Status check at 25s: alive=${!child.killed}, writable=${child.stdin.writable}, done=${wizardDone}`);
+  }, 25000);
 
   child.stdout.on("data", (d) => {
     const raw = d.toString();
     const lines = raw.split("\n");
     
     for (const line of lines) {
-      // Strip carriage returns and ANSI escape codes from PTY output
-      const msg = line.replace(/\r/g, "").replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").trim();
+      const msg = line.trim();
       if (!msg) continue;
       
       console.log(`[${id}] ${msg}`);
