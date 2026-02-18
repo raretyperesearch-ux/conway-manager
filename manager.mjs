@@ -24,6 +24,67 @@ const CONWAY_CLOUD_KEY = process.env.CONWAY_CLOUD_API_KEY || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
 
+const CONWAY_API_URL = "https://api.conway.tech";
+const LAUNCH_FUNDING_CENTS = 50; // $0.50 per agent
+
+// ── Fund agent with Conway credits ──
+async function fundAgent(walletAddress, agentId, sandboxId) {
+  if (!CONWAY_CLOUD_KEY) {
+    console.error(`[fundAgent] No Conway Cloud key — cannot fund`);
+    return false;
+  }
+  
+  const payload = {
+    to_address: walletAddress,
+    amount_cents: LAUNCH_FUNDING_CENTS,
+    note: `Alive Agents v2 launch funding - ${sandboxId}`,
+  };
+
+  // Try both endpoint shapes
+  const endpoints = ["/v1/credits/transfer", "/v1/credits/transfers"];
+  
+  for (const endpoint of endpoints) {
+    try {
+      const resp = await fetch(`${CONWAY_API_URL}${endpoint}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": CONWAY_CLOUD_KEY,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (resp.status === 404) continue;
+
+      if (!resp.ok) {
+        const errText = await resp.text();
+        console.error(`[fundAgent] ${endpoint} ${resp.status}: ${errText}`);
+        continue;
+      }
+
+      const data = await resp.json().catch(() => ({}));
+      console.log(`[fundAgent] ✅ Funded ${walletAddress} with $${(LAUNCH_FUNDING_CENTS / 100).toFixed(2)} — transfer: ${data.transfer_id || data.id || "ok"}`);
+      
+      if (agentId) {
+        log(agentId, "action", `Agent funded with $${(LAUNCH_FUNDING_CENTS / 100).toFixed(2)} Conway credits`, { 
+          wallet: walletAddress, 
+          amount_cents: LAUNCH_FUNDING_CENTS,
+          transfer_id: data.transfer_id || data.id,
+        });
+      }
+      return true;
+    } catch (err) {
+      console.error(`[fundAgent] ${endpoint} error: ${err.message}`);
+    }
+  }
+  
+  console.error(`[fundAgent] ❌ Failed to fund ${walletAddress}`);
+  if (agentId) {
+    log(agentId, "warn", `Auto-funding failed — agent may need manual funding`, { wallet: walletAddress });
+  }
+  return false;
+}
+
 const agents = new Map();
 
 // ── Supabase helpers ──
@@ -205,6 +266,8 @@ async function provision(config) {
             db("PATCH", "agents", { agent_wallet_address: realWallet }, `id=eq.${config.agent_id}`);
             log(config.agent_id, "action", `Wallet generated: ${realWallet}`, { sandbox_id: id, wallet: realWallet });
           }
+          // Auto-fund the agent with Conway credits
+          fundAgent(realWallet, config.agent_id, id);
         }
       }
 
