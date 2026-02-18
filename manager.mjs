@@ -57,6 +57,8 @@ async function provision(config) {
   const wallet = "0x" + crypto.randomBytes(20).toString("hex");
 
   console.log(`[+] ${config.name} → ${id}`);
+  console.log(`[+] agent_id: ${config.agent_id || "NOT PROVIDED"}`);
+  console.log(`[+] Supabase: ${SUPABASE_URL ? "yes" : "no"}`);
 
   // Create config directory for this agent
   const configDir = `/tmp/automaton-${id}`;
@@ -135,6 +137,14 @@ async function provision(config) {
         if (config.agent_id) {
           log(config.agent_id, "action", "Conway API key provisioned — agent authenticated", { sandbox_id: id });
         }
+      }
+
+      // Handle SIWE failure — press Enter to skip API key
+      if (msg.includes("press Enter to skip") || msg.includes("enter a key manually")) {
+        console.log(`[${id}] Skipping API key prompt (Enter)`);
+        setTimeout(() => {
+          if (child.stdin.writable) child.stdin.write("\n");
+        }, 500);
       }
 
       // Detect wizard prompts and feed answers — match specific steps
