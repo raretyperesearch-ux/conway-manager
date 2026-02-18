@@ -20,6 +20,7 @@ import path from "node:path";
 
 const PORT = process.env.PORT || 3001;
 const API_KEY = process.env.CONWAY_API_KEY || "alife-dev-key";
+const CONWAY_CLOUD_KEY = process.env.CONWAY_CLOUD_API_KEY || "";
 const SUPABASE_URL = process.env.SUPABASE_URL || "";
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
 
@@ -106,6 +107,7 @@ async function provision(config) {
       AUTOMATON_GENESIS: config.genesis_prompt || config.genesisPrompt || "",
       AUTOMATON_CREATOR: config.creator_address || config.creatorAddress || "",
       AUTOMATON_WALLET: wallet,
+      CONWAY_API_KEY: CONWAY_CLOUD_KEY,
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -121,8 +123,13 @@ async function provision(config) {
   let answerIndex = 0;
 
   child.stdout.on("data", (d) => {
-    const msg = d.toString().trim();
-    if (msg) {
+    const raw = d.toString();
+    const lines = raw.split("\n");
+    
+    for (const line of lines) {
+      const msg = line.trim();
+      if (!msg) continue;
+      
       console.log(`[${id}] ${msg}`);
       if (config.agent_id) log(config.agent_id, "info", msg, { sandbox_id: id });
 
@@ -148,12 +155,19 @@ async function provision(config) {
         }
       }
 
-      // Handle SIWE failure — press Enter to skip API key
-      if (msg.includes("press Enter to skip") || msg.includes("enter a key manually")) {
-        console.log(`[${id}] Skipping API key prompt (Enter)`);
-        setTimeout(() => {
-          if (child.stdin.writable) child.stdin.write("\n");
-        }, 500);
+      // Handle SIWE failure — feed the Conway Cloud API key or press Enter to skip
+      if (msg.includes("press Enter to skip") || msg.includes("enter a key manually") || msg.includes("Conway API key (cnwy_k_")) {
+        if (CONWAY_CLOUD_KEY) {
+          console.log(`[${id}] Feeding Conway Cloud API key`);
+          setTimeout(() => {
+            if (child.stdin.writable) child.stdin.write(CONWAY_CLOUD_KEY + "\n");
+          }, 500);
+        } else {
+          console.log(`[${id}] No Conway Cloud key — pressing Enter to skip`);
+          setTimeout(() => {
+            if (child.stdin.writable) child.stdin.write("\n");
+          }, 500);
+        }
       }
 
       // Detect wizard prompts and feed answers — match specific steps
@@ -165,24 +179,23 @@ async function provision(config) {
       if (shouldAnswer && answerIndex < wizardAnswers.length) {
         const answer = wizardAnswers[answerIndex];
         const label = wizardLabels[answerIndex];
-        console.log(`[${id}] Wizard auto-answer [${answerIndex}]: "${answer.slice(0, 60)}..."`);
+        const idx = answerIndex;
+        console.log(`[${id}] Wizard auto-answer [${idx}]: "${answer.slice(0, 60)}..."`);
 
-        // Log the answer to Supabase so it shows in the activity feed
         if (config.agent_id) {
-          log(config.agent_id, "action", `${label}: ${answer.slice(0, 200)}`, { sandbox_id: id, wizard_step: answerIndex });
+          log(config.agent_id, "action", `${label}: ${answer.slice(0, 200)}`, { sandbox_id: id, wizard_step: idx });
         }
 
+        answerIndex++;
         setTimeout(() => {
           if (child.stdin.writable) {
-            // Genesis prompt needs double Enter to finish
-            if (answerIndex === 1) {
+            if (idx === 1) {
               child.stdin.write(answer + "\n\n");
             } else {
               child.stdin.write(answer + "\n");
             }
-            answerIndex++;
           }
-        }, 500);
+        }, 500 + (idx * 500));
       }
     }
   });
@@ -329,7 +342,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`◈ ALiFe Conway Manager`);
+  console.log(`◈ ALiFe Conway Manager v3`);
+  console.log(`  Host: default (no 0.0.0.0)`);
   console.log(`  Port: ${PORT}`);
   console.log(`  Health: /health`);
   console.log(`  Provision: POST /v1/automatons`);
