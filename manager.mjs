@@ -96,19 +96,23 @@ async function provision(config) {
   }
 
   // Spawn the Conway automaton as a child process
-  // The automaton runs: node dist/index.js --run
-  // We pass config via environment variables
-  const child = spawn("node", ["dist/index.js", "--run"], {
+  // Use 'script' to wrap in a pseudo-TTY so readline works properly
+  const envVars = {
+    ...process.env,
+    AUTOMATON_CONFIG_DIR: configDir,
+    AUTOMATON_NAME: config.name,
+    AUTOMATON_GENESIS: config.genesis_prompt || config.genesisPrompt || "",
+    AUTOMATON_CREATOR: config.creator_address || config.creatorAddress || "",
+    AUTOMATON_WALLET: wallet,
+    CONWAY_API_KEY: CONWAY_CLOUD_KEY,
+    TERM: "xterm",
+    COLUMNS: "120",
+    LINES: "40",
+  };
+
+  const child = spawn("script", ["-qfc", "node dist/index.js --run", "/dev/null"], {
     cwd: "/app",
-    env: {
-      ...process.env,
-      AUTOMATON_CONFIG_DIR: configDir,
-      AUTOMATON_NAME: config.name,
-      AUTOMATON_GENESIS: config.genesis_prompt || config.genesisPrompt || "",
-      AUTOMATON_CREATOR: config.creator_address || config.creatorAddress || "",
-      AUTOMATON_WALLET: wallet,
-      CONWAY_API_KEY: CONWAY_CLOUD_KEY,
-    },
+    env: envVars,
     stdio: ["pipe", "pipe", "pipe"],
   });
 
@@ -136,19 +140,22 @@ async function provision(config) {
 
   setTimeout(() => {
     if (child.stdin.writable && !wizardDone) {
-      console.log(`[${id}] Pre-feeding wizard answer [1] (genesis): "${wizardAnswers[1].slice(0, 40)}..."`);
-      child.stdin.write(wizardAnswers[1] + "\n");
+      // Send genesis prompt as single write: text + two newlines to signal "done"
+      const genesisPayload = wizardAnswers[1] + "\n\n";
+      console.log(`[${id}] Pre-feeding wizard answer [1] (genesis) as single write with \\n\\n`);
+      console.log(`[${id}] Genesis payload bytes: ${Buffer.byteLength(genesisPayload)}`);
+      child.stdin.write(genesisPayload);
       if (config.agent_id) log(config.agent_id, "action", `${wizardLabels[1]}: ${wizardAnswers[1].slice(0, 200)}`, { sandbox_id: id, wizard_step: 1 });
     }
   }, 10000);
 
-  // Double-enter to finish genesis prompt
+  // Extra blank lines just in case
   setTimeout(() => {
     if (child.stdin.writable && !wizardDone) {
-      console.log(`[${id}] Sending blank line to finish genesis prompt`);
-      child.stdin.write("\n");
+      console.log(`[${id}] Sending extra blank lines for genesis`);
+      child.stdin.write("\n\n");
     }
-  }, 11000);
+  }, 12000);
 
   setTimeout(() => {
     if (child.stdin.writable && !wizardDone) {
@@ -156,14 +163,25 @@ async function provision(config) {
       child.stdin.write(wizardAnswers[2] + "\n");
       if (config.agent_id) log(config.agent_id, "action", `${wizardLabels[2]}: ${wizardAnswers[2]}`, { sandbox_id: id, wizard_step: 2 });
     }
-  }, 13000);
+  }, 14000);
+
+  // Debug: check if process is still alive after 20 seconds
+  setTimeout(() => {
+    const a = agents.get(id);
+    console.log(`[${id}] Status check at 20s: process alive=${!child.killed}, stdin writable=${child.stdin.writable}, wizardDone=${wizardDone}`);
+    if (child.stdin.writable && !wizardDone) {
+      console.log(`[${id}] Wizard still not done - sending extra newlines`);
+      child.stdin.write("\n\n\n");
+    }
+  }, 20000);
 
   child.stdout.on("data", (d) => {
     const raw = d.toString();
     const lines = raw.split("\n");
     
     for (const line of lines) {
-      const msg = line.trim();
+      // Strip carriage returns and ANSI escape codes from PTY output
+      const msg = line.replace(/\r/g, "").replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").trim();
       if (!msg) continue;
       
       console.log(`[${id}] ${msg}`);
